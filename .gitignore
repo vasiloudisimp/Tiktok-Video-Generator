@@ -1,0 +1,4 @@
+.env
+.venv
+/videos
+/output_videos

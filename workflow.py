@@ -1,13 +1,15 @@
 import subprocess
 from elevenlabs import ElevenLabs
-from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
-from moviepy.config import change_settings
+from moviepy import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
 import random
 import os
 import requests
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
+from dotenv import load_dotenv
+
+load_dotenv()
 
 prompt = "New Discoveries in the Pyramids of Gyza" 
 audio_path = "scenario_audio.mp3"  
@@ -15,8 +17,8 @@ json_path = "transcription.json"
 videos_folder = "./videos"
 ass_path = "subtitles.ass"
 output_video_path = "final_video_with_subtitles.mp4"
-api_key_11labs = "sk_9a0669fc3f70a85f53d79c7fd8a768a5b92225414dd1d496"
-voice_id="20zUtLxCwVzsFDWub4sB"
+api_key_11labs = os.getenv("API_KEY_11LABS")
+voice_id="20zUtLxCwVzsFDWub4sB" 
 
 #Step 1: Video Choice
 def get_video_duration(videos_folder: str) -> tuple[Optional[str], Optional[float]]:
@@ -36,15 +38,17 @@ def get_video_duration(videos_folder: str) -> tuple[Optional[str], Optional[floa
 video_path, video_duration = get_video_duration(videos_folder)
 if video_path:
     print(f"Selected video: {video_path}, Duration: {video_duration} seconds")
-
+#input()
 #Step 2: Scenario Generation
 def generate_scenario(prompt: str, duration: float) -> Optional[str]:
     target_word_count = max(30, min(120, int(duration * 2.25)))  # Greek speech rate
     print(f"Target word count: {target_word_count} words")
     
     model_prompt = (
-        f"Create a concise first-person monologue about '{prompt}' in Greek. "
-        f"Max {target_word_count} words. Use short sentences."
+        f"Create a very short concise third-person text, speaking directly about '{prompt}' with max {target_word_count} words. "
+        f"Do NOT include a title in your answer"
+       # f"Do NOT write more than {target_word_count} words. {target_word_count} is the maximum words needed"
+        f"You are a Greek native speaker and only speaks Greek"
     )
     try:
         result = subprocess.run(
@@ -56,10 +60,11 @@ def generate_scenario(prompt: str, duration: float) -> Optional[str]:
         print(f"Error generating scenario: {e}")
         return None
 
-scenario = generate_scenario(prompt, video_duration) if video_duration else None
+#scenario = generate_scenario(prompt, video_duration) if video_duration else None
+scenario = "Μια νέα μελέτη στο «The Lancet HIV» προειδοποιεί πως οι περικοπές στη χρηματοδότηση από μεγάλες χώρες-χορηγούς κινδυνεύουν να εκτοξεύσουν τις μολύνσεις από HIV παγκοσμίως. Η πρόοδος δεκαετιών κρέμεται από μια κλωστή. Η αγωνία μεγαλώνει για το μέλλον της δημόσιας υγείας."
 if scenario:
     print("Scenario generated:", scenario)
-
+input()
 #Step 3: Audio From 11Labs
 def generate_audio(scenario: str, output_path: str, api_key: str, voice_id: str) -> bool:
     client = ElevenLabs(api_key=api_key)
@@ -80,7 +85,7 @@ def generate_audio(scenario: str, output_path: str, api_key: str, voice_id: str)
         return False
 
 audio_success = generate_audio(scenario, audio_path, api_key_11labs, voice_id) if scenario else False
-
+#input()
 #Step 4: Speech to Text From 11labs
 def transcribe_audio(audio_path: str, output_path: str, api_key: str) -> Optional[dict]:
     if not Path(audio_path).is_file():
@@ -108,7 +113,9 @@ def transcribe_audio(audio_path: str, output_path: str, api_key: str) -> Optiona
         return None
 
 transcription = transcribe_audio(audio_path, json_path, api_key_11labs) if audio_success else None
-
+# with open("transcription.json", "r", encoding="utf-8") as file: #if i want to use an existed json
+#     transcription = json.load(file) 
+#input()
 #Step 5: Subtitles Creation
 def create_ass_subtitles(transcription: dict, output_path: str):
     if not transcription:
@@ -128,7 +135,7 @@ def create_ass_subtitles(transcription: dict, output_path: str):
     [V4+ Styles]
 
     Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-    Style: Default,Ubuntu,16,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,6,1,2,70,70,10,1
+    Style: Default,Ubuntu,16,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,6,1,6,70,70,40,1
 
     [Events]
     Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -140,14 +147,17 @@ def create_ass_subtitles(transcription: dict, output_path: str):
             end_time = seconds_to_ass_time(word['end'])
             text = word['text'].replace(",", "")
             duration = int((word['end'] - word['start']) * 100)
-            ass_lines.append(f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{{\k{duration}}}{text}")
+            # Append dialogue line with no extra tab at the beginning
+            ass_lines.append(f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{{\\k{duration}}}{text}")
 
+    # Write the ASS file with consistent indentation (no extra tab at the beginning of lines)
     with open(output_path, "w", encoding='utf-8') as f:
-        f.write(ass_header + "\n".join(ass_lines))
+        f.write(ass_header + "\n" + "\n".join(ass_lines))  # Ensure no extra tab is added
         print(f"ASS subtitles saved to {output_path}")
 
-create_ass_subtitles(transcription, ass_path)
 
+create_ass_subtitles(transcription, ass_path)
+#input()
 #Step 6: Final .mp4 video
 def create_final_video(video_path: str, audio_path: str, ass_path: str, output_path: str):
     if not all([video_path, Path(audio_path).is_file(), Path(ass_path).is_file()]):
@@ -174,7 +184,7 @@ def create_final_video(video_path: str, audio_path: str, ass_path: str, output_p
         '-stream_loop', str(loops),
         '-i', video_path,
         '-i', audio_path,
-        '-filter_complex', '[0:v]subtitles=subtitles.ass:force_style=\'Alignment=2\'[v]',
+        '-filter_complex', '[0:v]subtitles=subtitles.ass:force_style=\'Alignment=6\'[v]',
         '-map', '[v]',
         '-map', '1:a',
         '-c:v', 'libx264',
