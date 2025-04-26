@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Optional, Tuple
 from dotenv import load_dotenv
+import unicodedata
 
 load_dotenv()
 
@@ -18,7 +19,10 @@ videos_folder = "./videos"
 ass_path = "subtitles.ass"
 output_video_path = "final_video_with_subtitles.mp4"
 api_key_11labs = os.getenv("API_KEY_11LABS")
-voice_id="20zUtLxCwVzsFDWub4sB" 
+voice_id= "n0vzWypeCK1NlWPVwhOc" #  "20zUtLxCwVzsFDWub4sB"
+image_path = "image.webp" #Add the image name (or path if not in same folder) if you want to add one to the video
+edit = True #True for full workflow, False for edit (.ass or video photo)
+scenario = "Ο πρωθυπουργός ανακοίνωσε νέα μέτρα στήριξης για τα ελληνικά νοικοκυριά, προβλέποντας επιστροφή ενός ολόκληρου ενοικίου ετησίως στους ενοικιαστές. Επιπλέον, ενίσχυση θα δοθεί σε συνταξιούχους και άτομα με αναπηρία, ενώ παράλληλα εντάσσονται παρεμβάσεις στο Πρόγραμμα Δημοσίων Επενδύσεων. Τα μέτρα ακολούθησαν τη δημοσίευση των στοιχείων της Eurostat για το πλεόνασμα του 2024."
 
 #Step 1: Video Choice
 def get_video_duration(videos_folder: str) -> tuple[Optional[str], Optional[float]]:
@@ -61,10 +65,9 @@ def generate_scenario(prompt: str, duration: float) -> Optional[str]:
         return None
 
 #scenario = generate_scenario(prompt, video_duration) if video_duration else None
-scenario = "Μια νέα μελέτη στο «The Lancet HIV» προειδοποιεί πως οι περικοπές στη χρηματοδότηση από μεγάλες χώρες-χορηγούς κινδυνεύουν να εκτοξεύσουν τις μολύνσεις από HIV παγκοσμίως. Η πρόοδος δεκαετιών κρέμεται από μια κλωστή. Η αγωνία μεγαλώνει για το μέλλον της δημόσιας υγείας."
 if scenario:
     print("Scenario generated:", scenario)
-input()
+#input()
 #Step 3: Audio From 11Labs
 def generate_audio(scenario: str, output_path: str, api_key: str, voice_id: str) -> bool:
     client = ElevenLabs(api_key=api_key)
@@ -84,8 +87,9 @@ def generate_audio(scenario: str, output_path: str, api_key: str, voice_id: str)
         print(f"Error generating audio: {e}")
         return False
 
-audio_success = generate_audio(scenario, audio_path, api_key_11labs, voice_id) if scenario else False
-#input()
+if edit:
+    audio_success = generate_audio(scenario, audio_path, api_key_11labs, voice_id) if scenario else False
+    input()
 #Step 4: Speech to Text From 11labs
 def transcribe_audio(audio_path: str, output_path: str, api_key: str) -> Optional[dict]:
     if not Path(audio_path).is_file():
@@ -111,11 +115,13 @@ def transcribe_audio(audio_path: str, output_path: str, api_key: str) -> Optiona
     except Exception as e:
         print(f"Transcription error: {e}")
         return None
+if edit:
+    transcription = transcribe_audio(audio_path, json_path, api_key_11labs) if audio_success else None
+    #input()
+else:
+    with open("transcription.json", "r", encoding="utf-8") as file: #if i want to use an existed json
+        transcription = json.load(file) 
 
-transcription = transcribe_audio(audio_path, json_path, api_key_11labs) if audio_success else None
-# with open("transcription.json", "r", encoding="utf-8") as file: #if i want to use an existed json
-#     transcription = json.load(file) 
-#input()
 #Step 5: Subtitles Creation
 def create_ass_subtitles(transcription: dict, output_path: str):
     if not transcription:
@@ -127,7 +133,10 @@ def create_ass_subtitles(transcription: dict, output_path: str):
         minutes = int((seconds % 3600) // 60)
         secs = seconds % 60
         return f"{hours}:{minutes:02d}:{secs:02.2f}"
-    
+
+    def remove_tonos(text):
+        return ''.join(c for c in unicodedata.normalize('NFD', text) if unicodedata.category(c) != 'Mn')
+
     ass_header = """[Script Info]
     Title: Modern Subtitles
     ScriptType: v4.00+
@@ -135,7 +144,7 @@ def create_ass_subtitles(transcription: dict, output_path: str):
     [V4+ Styles]
 
     Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-    Style: Default,Ubuntu,16,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,6,1,6,70,70,40,1
+    Style: Default,Inter,15,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,6,1,2,70,70,100,1
 
     [Events]
     Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -145,7 +154,7 @@ def create_ass_subtitles(transcription: dict, output_path: str):
         if word['type'] == 'word':
             start_time = seconds_to_ass_time(word['start'])
             end_time = seconds_to_ass_time(word['end'])
-            text = word['text'].replace(",", "")
+            text = remove_tonos(word['text'].replace(",", "").upper())
             duration = int((word['end'] - word['start']) * 100)
             # Append dialogue line with no extra tab at the beginning
             ass_lines.append(f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{{\\k{duration}}}{text}")
@@ -157,10 +166,10 @@ def create_ass_subtitles(transcription: dict, output_path: str):
 
 
 create_ass_subtitles(transcription, ass_path)
-#input()
+input()
 #Step 6: Final .mp4 video
-def create_final_video(video_path: str, audio_path: str, ass_path: str, output_path: str):
-    if not all([video_path, Path(audio_path).is_file(), Path(ass_path).is_file()]):
+def create_final_video(video_path: str, audio_path: str, ass_path: str, image_path: str, output_path: str):
+    if not all([Path(video_path).is_file(), Path(audio_path).is_file(), Path(ass_path).is_file()]):
         print("Missing required files for final video.")
         return
     
@@ -174,30 +183,41 @@ def create_final_video(video_path: str, audio_path: str, ass_path: str, output_p
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         return float(result.stdout.strip())
-    
+
     video_dur = get_duration(video_path)
     audio_dur = get_duration(audio_path)
     loops = int((audio_dur + video_dur - 0.001) / video_dur) - 1
-    
+
+    # Base filter for subtitles
+    filter_complex = "[0:v]subtitles=subtitles.ass:force_style='Alignment=2'[subbed]"
+    input_files = ['-stream_loop', str(loops), '-i', video_path, '-i', audio_path]  # Video & audio inputs
+    map_settings = ['-map', '[subbed]', '-map', '1:a']  # Default: Video with subtitles & audio
+
+    # If the image exists, add it to the video
+    if Path(image_path).is_file():
+        input_files.append('-i')
+        input_files.append(image_path)  # Add image input
+        filter_complex += ";[2:v]scale=iw*0.8:-1[resized];[subbed][resized]overlay=W-w-40:200[outv]"
+        map_settings = ['-map', '[outv]', '-map', '1:a']  # Use the final overlayed video
+
     ffmpeg_cmd = [
         'ffmpeg',
-        '-stream_loop', str(loops),
-        '-i', video_path,
-        '-i', audio_path,
-        '-filter_complex', '[0:v]subtitles=subtitles.ass:force_style=\'Alignment=6\'[v]',
-        '-map', '[v]',
-        '-map', '1:a',
+        *input_files,
+        '-filter_complex', filter_complex,
+        *map_settings,
         '-c:v', 'libx264',
         '-c:a', 'aac',
         '-t', str(audio_dur),
         output_path
     ]
-    
+
     result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
     if result.returncode == 0:
         print(f"Final video saved to {output_path}")
     else:
         print(f"Error during video processing: {result.stderr}")
 
-output_video_path = "output_video_with_subs.mp4"
-create_final_video(video_path, audio_path, ass_path, output_video_path)
+
+if __name__ == "__main__":
+    output_video_path = "output_video.mp4"
+    create_final_video(video_path, audio_path, ass_path, image_path, output_video_path)
